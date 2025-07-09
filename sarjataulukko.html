@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+  <meta charset="UTF-8" />
+  <title>Sarjataulukko</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; background: #f4f4f4; }
+    h2 { margin-top: 40px; }
+    table { border-collapse: collapse; width: 100%; margin-bottom: 30px; background: white; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+    th { background-color: #eee; }
+    .fixture { margin: 5px 0; display: flex; align-items: center; }
+    .fixture label { margin-right: 10px; }
+    .fixture span, .fixture input { margin-right: 10px; }
+    input[type="text"], input[type="time"], button { padding: 5px; margin: 5px; font-size: 1em; }
+    #fixtures { margin-bottom: 20px; }
+    @media print { .no-print { display: none; } }
+  </style>
+</head>
+<body>
+  <h1>Sarjataulukko</h1>
+
+  <h2>1. Lisää pelaajat</h2>
+  <input type="text" id="playerName" placeholder="Pelaajan nimi" />
+  <button type="button" onclick="addPlayer()">Lisää pelaaja</button>
+  <ul id="playerList"></ul>
+
+  <h2>2. Luo otteluohjelma</h2>
+  <label for="seriesType">Sarjan tyyppi:</label>
+  <select id="seriesType">
+    <option value="1">Yksinkertainen (1x)</option>
+    <option value="2">Kaksinkertainen (2x)</option>
+    <option value="3">Kolminkertainen (3x)</option>
+    <option value="4">Nelikertainen (4x)</option>
+  </select>
+  <button type="button" onclick="generateFixtures()">Luo ottelut</button>
+  <div id="fixtures"></div>
+
+  <h2>3. Sarjataulukko</h2>
+  <button type="button" class="no-print" onclick="window.print()">Tallenna PDF</button>
+  <table id="standingsTable">
+    <thead>
+      <tr>
+        <th>Pelaaja</th><th>Ottelut</th><th>Voitot</th>
+        <th>+Pisteet</th><th>-Pisteet</th><th>+- -sarake</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <script>
+    const players = [];
+
+    function addPlayer() {
+      const nameInput = document.getElementById('playerName');
+      const name = nameInput.value.trim();
+      if (name && !players.includes(name)) {
+        players.push(name);
+        nameInput.value = '';
+        updatePlayerList();
+      }
+    }
+
+    function updatePlayerList() {
+      const list = document.getElementById('playerList');
+      list.innerHTML = '';
+      players.forEach(p => {
+        const li = document.createElement('li');
+        li.textContent = p;
+        list.appendChild(li);
+      });
+    }
+
+    function shuffleArray(arr) {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+    }
+
+    function generateFixtures() {
+      const fixturesDiv = document.getElementById('fixtures');
+      const seriesMultiplier = parseInt(document.getElementById('seriesType').value);
+      fixturesDiv.innerHTML = '';
+
+      // Alustetaan tuomarikerrat kaikille paitsi Markku
+      const refereeCounts = {};
+      players.forEach(p => { if (p !== 'Markku') refereeCounts[p] = 0; });
+
+      for (let r = 0; r < seriesMultiplier; r++) {
+        let roundFixtures = [];
+        for (let i = 0; i < players.length; i++) {
+          for (let j = i + 1; j < players.length; j++) {
+            const home = (r % 2 === 0) ? players[i] : players[j];
+            const away = (r % 2 === 0) ? players[j] : players[i];
+            roundFixtures.push({ home, away });
+          }
+        }
+        shuffleArray(roundFixtures);
+
+        roundFixtures.forEach(f => {
+          const eligible = players.filter(p => p !== f.home && p !== f.away && p !== 'Markku');
+          // Etsi minimimäärä tuomareiden kertoimesta
+          const minCount = Math.min(...eligible.map(p => refereeCounts[p]));
+          // Suodata minimimäärässä olevat pelaajat ja valitse satunnainen
+          const minGroup = eligible.filter(p => refereeCounts[p] === minCount);
+          const ref = minGroup[Math.floor(Math.random() * minGroup.length)];
+          refereeCounts[ref]++;
+
+          const div = document.createElement('div');
+          div.className = 'fixture';
+          div.innerHTML = `
+            <label>${f.home} – ${f.away}:</label>
+            <input type="text" class="scoreInput" data-home="${f.home}" data-away="${f.away}" />
+            <input type="time" class="timeInput" />
+            <label>2. tuomari:</label>
+            <span class="referee">${ref}</span>
+          `;
+          fixturesDiv.appendChild(div);
+        });
+      }
+
+      document.querySelectorAll('.scoreInput').forEach(input => {
+        input.addEventListener('input', updateStandings);
+      });
+      updateStandings();
+    }
+
+    function updateStandings() {
+      const stats = {};
+      players.forEach(p => { stats[p] = { matches:0, wins:0, goalsFor:0, goalsAgainst:0 }; });
+      document.querySelectorAll('.scoreInput').forEach(input => {
+        const s = input.value.trim();
+        if (/^[0-9]+[-–][0-9]+$/.test(s)) {
+          const [h, a] = s.split(/[-–]/).map(Number);
+          const home = input.dataset.home, away = input.dataset.away;
+          stats[home].matches++; stats[away].matches++;
+          stats[home].goalsFor += h; stats[home].goalsAgainst += a;
+          stats[away].goalsFor += a; stats[away].goalsAgainst += h;
+          if (h > a) stats[home].wins++;
+          else if (a > h) stats[away].wins++;
+        }
+      });
+      const tbody = document.querySelector('#standingsTable tbody');
+      tbody.innerHTML = '';
+      players.map(name => {
+        const s = stats[name];
+        return {
+          name, matches:s.matches, wins:s.wins,
+          plus:s.goalsFor, minus:s.goalsAgainst, diff:s.goalsFor-s.goalsAgainst
+        };
+      })
+      .sort((a,b) => (b.wins-a.wins) || (b.diff-a.diff))
+      .forEach(p => {
+        const row = document.createElement('tr');
+        row.innerHTML = `<td>${p.name}</td><td>${p.matches}</td>
+                         <td>${p.wins}</td><td>${p.plus}</td>
+                         <td>${p.minus}</td><td>${p.diff}</td>`;
+        tbody.appendChild(row);
+      });
+    }
+  </script>
+</body>
+</html>
